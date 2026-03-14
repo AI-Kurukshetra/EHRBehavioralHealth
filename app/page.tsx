@@ -40,14 +40,9 @@ export default function IndexPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">BehavioralHealth</p>
             <p className="text-sm font-semibold text-slate-900">EHR Platform</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button asChild variant="ghost" className="px-4">
-              <Link href="/login">Login</Link>
-            </Button>
-            <Button asChild className="px-4">
-              <Link href="/signup">Sign up</Link>
-            </Button>
-          </div>
+          <Button asChild className="px-4">
+            <Link href="/login">Login</Link>
+          </Button>
         </div>
       </section>
 
@@ -70,9 +65,7 @@ export default function IndexPage() {
               <Button asChild className="px-6 py-3">
                 <Link href="/login">Go to login</Link>
               </Button>
-              <Button asChild variant="secondary" className="px-6 py-3">
-                <Link href="/signup">Create account</Link>
-              </Button>
+              <p className="text-sm text-slate-500">Access is created by your admin team.</p>
             </div>
           </div>
 
