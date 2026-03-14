@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { findAllowedRolesForPath, getRedirectPathForRole, AUTH_PAGES } from "@/lib/auth";
 import type { Database } from "@/types/database";
-import type { UserRole } from "@/types/auth";
+import type { Profile, UserRole } from "@/types/auth";
 
 const { NEXT_PUBLIC_SUPABASE_URL = "", NEXT_PUBLIC_SUPABASE_ANON_KEY = "" } = process.env;
 
@@ -40,11 +40,12 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  const { data: profile } = await supabase
+  const { data: profileData } = await supabase
     .from("profiles")
     .select("role, full_name")
     .eq("id", user.id)
     .maybeSingle();
+  const profile = profileData as Pick<Profile, "role" | "full_name"> | null;
 
   if (!profile) {
     if (AUTH_PAGES.includes(pathname) && errorParam === "profile") {
