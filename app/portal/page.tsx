@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MainNav } from "@/components/layout/main-nav";
+import { PatientAiExplainer } from "@/components/portal/patient-ai-explainer";
 import { signOut } from "@/app/actions/logout";
 import { createAppointmentAction, deleteAppointmentAction } from "@/app/appointments/actions";
 import { APPOINTMENT_TIME_SLOTS } from "@/lib/constants/appointments";
@@ -182,6 +183,11 @@ export default async function PortalPage() {
                   </div>
                   <p className="mt-3 text-sm text-slate-600">{plan.goals}</p>
                   <p className="mt-2 text-sm text-slate-500">Interventions: {plan.interventions}</p>
+                  <PatientAiExplainer
+                    type="treatment-plan"
+                    title={plan.title}
+                    content={`Goals: ${plan.goals}\nInterventions: ${plan.interventions}\nStatus: ${plan.status}`}
+                  />
                 </div>
               ))
             )}
@@ -197,6 +203,11 @@ export default async function PortalPage() {
                   <p className="text-xs uppercase tracking-wide text-slate-500">{new Date(note.createdAt).toLocaleString()}</p>
                   <p className="mt-1 font-semibold text-slate-900">{note.title}</p>
                   <p className="mt-2 text-sm text-slate-600">{note.summary ?? note.content}</p>
+                  <PatientAiExplainer
+                    type="note"
+                    title={note.title}
+                    content={note.summary ?? note.content}
+                  />
                 </div>
               ))
             )}

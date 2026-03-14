@@ -1,7 +1,14 @@
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getCurrentUserContext, getPatients, getTreatmentPlans, scopePatientsToCurrentProvider, scopeRecordsToCurrentProvider } from "@/lib/data/ehr";
+import {
+  getCurrentUserContext,
+  getPatients,
+  getProviders,
+  getTreatmentPlans,
+  scopePatientsToCurrentProvider,
+  scopeRecordsToCurrentProvider,
+} from "@/lib/data/ehr";
 import { createTreatmentPlanAction, deleteTreatmentPlanAction, updateTreatmentPlanAction } from "./actions";
 
 export default async function TreatmentPlansPage({
@@ -10,9 +17,10 @@ export default async function TreatmentPlansPage({
   searchParams?: Promise<Record<string, string | undefined>>;
 }) {
   const { role, userId } = await getCurrentUserContext();
-  const [plans, patients] = await Promise.all([getTreatmentPlans(), getPatients()]);
+  const [plans, patients, providers] = await Promise.all([getTreatmentPlans(), getPatients(), getProviders()]);
   const scopedPlans = await scopeRecordsToCurrentProvider(plans);
   const scopedPatients = await scopePatientsToCurrentProvider(patients);
+  const availableProviders = role === "provider" && userId ? providers.filter((provider) => provider.id === userId) : providers;
   const patientLookup = Object.fromEntries(scopedPatients.map((patient) => [patient.id, patient.fullName]));
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const errorMessage = resolvedSearchParams?.error ? decodeURIComponent(resolvedSearchParams.error) : null;
@@ -86,8 +94,25 @@ export default async function TreatmentPlansPage({
                 <form action={updateTreatmentPlanAction} className="mt-4 grid gap-3 md:grid-cols-2">
                   <input type="hidden" name="id" value={plan.id} />
                   <input type="hidden" name="patientId" value={plan.patientId} />
-                  <input type="hidden" name="providerId" value={plan.providerId} />
                   <input type="hidden" name="redirectTo" value="/treatment-plans" />
+                  {role === "provider" ? <input type="hidden" name="providerId" value={userId ?? ""} /> : null}
+                  {role !== "provider" ? (
+                    <label className="text-sm font-medium text-slate-600">
+                      Provider
+                      <select
+                        name="providerId"
+                        defaultValue={plan.providerId}
+                        className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                        required
+                      >
+                        {availableProviders.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.fullName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                   <label className="text-sm font-medium text-slate-600">
                     Title
                     <input
@@ -175,13 +200,24 @@ export default async function TreatmentPlansPage({
           {role === "provider" ? <input type="hidden" name="providerId" value={userId ?? ""} /> : null}
           {role !== "provider" ? (
             <label className="text-sm font-medium text-slate-600">
-              Provider ID
-              <input
+              Provider
+              <select
                 name="providerId"
                 required
                 className="mt-1 w-full rounded-2xl border border-white/60 bg-white/80 px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                placeholder="provider-001"
-              />
+                defaultValue={availableProviders[0]?.id ?? ""}
+                disabled={availableProviders.length === 0}
+              >
+                {availableProviders.length === 0 ? (
+                  <option value="">No providers available</option>
+                ) : (
+                  availableProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.fullName}
+                    </option>
+                  ))
+                )}
+              </select>
             </label>
           ) : (
             <label className="text-sm font-medium text-slate-600">
