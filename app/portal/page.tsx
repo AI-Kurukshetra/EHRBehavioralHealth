@@ -53,7 +53,7 @@ export default async function PortalPage() {
               <h1 className="text-3xl font-semibold text-slate-900">Welcome back, {preferredName.split(" ")[0]}</h1>
             </div>
             <form action={signOut}>
-              <Button type="submit" variant="ghost" className="text-rose-600 hover:text-rose-700">
+              <Button type="submit">
                 Sign out
               </Button>
             </form>
