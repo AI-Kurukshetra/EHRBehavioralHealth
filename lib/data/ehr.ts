@@ -51,7 +51,7 @@ export const getPatients = () =>
 
 export const getPatientById = async (id: string) => {
   const patients = await getPatients();
-  return patients.find((patient) => patient.id === id) ?? placeholderPatients[0];
+  return patients.find((patient) => patient.id === id) ?? null;
 };
 
 export const getAppointments = () =>
@@ -115,4 +115,45 @@ export const getUserIdFromCookies = async (): Promise<string | null> => {
   const cookieStore = await cookies();
   const userId = cookieStore.get("bh_user_id")?.value;
   return userId ? decodeURIComponent(userId) : null;
+};
+
+export const getPatientForCurrentUser = async () => {
+  const userId = await getUserIdFromCookies();
+
+  if (!userId) {
+    return null;
+  }
+
+  const patients = await getPatients();
+  return patients.find((patient) => patient.id === userId) ?? null;
+};
+
+export const getCurrentUserContext = async () => {
+  const [role, userId] = await Promise.all([getRoleFromCookies(), getUserIdFromCookies()]);
+
+  return {
+    role,
+    userId,
+    isProvider: role === "provider" && Boolean(userId),
+  };
+};
+
+export const scopeRecordsToCurrentProvider = async <T extends { providerId: string }>(records: T[]) => {
+  const { role, userId } = await getCurrentUserContext();
+
+  if (role !== "provider" || !userId) {
+    return records;
+  }
+
+  return records.filter((record) => record.providerId === userId);
+};
+
+export const scopePatientsToCurrentProvider = async (patients: Patient[]) => {
+  const { role, userId } = await getCurrentUserContext();
+
+  if (role !== "provider" || !userId) {
+    return patients;
+  }
+
+  return patients.filter((patient) => patient.providerId === userId);
 };

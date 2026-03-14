@@ -1,15 +1,17 @@
 import { notFound } from "next/navigation";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card } from "@/components/ui/card";
-import { getAppointments, getClinicalNotes, getPatientById, getTreatmentPlans } from "@/lib/data/ehr";
+import { getAppointments, getClinicalNotes, getCurrentUserContext, getPatientById, getTreatmentPlans, scopeRecordsToCurrentProvider } from "@/lib/data/ehr";
 
 interface PatientDetailPageProps {
   params: { id: string };
 }
 
 export default async function PatientDetailPage({ params }: PatientDetailPageProps) {
+  const { role, userId } = await getCurrentUserContext();
   const patient = await getPatientById(params.id);
-  if (!patient) {
+
+  if (!patient || (role === "provider" && userId && patient.providerId !== userId)) {
     notFound();
   }
 
@@ -18,10 +20,14 @@ export default async function PatientDetailPage({ params }: PatientDetailPagePro
     getClinicalNotes(),
     getTreatmentPlans(),
   ]);
+  const scopedAppointments = await scopeRecordsToCurrentProvider(appointments);
+  const scopedNotes = await scopeRecordsToCurrentProvider(notes);
+  const scopedPlans = await scopeRecordsToCurrentProvider(plans);
 
-  const patientAppointments = appointments.filter((appt) => appt.patientId === patient.id);
-  const patientNotes = notes.filter((note) => note.patientId === patient.id);
-  const patientPlan = plans.find((plan) => plan.patientId === patient.id);
+  const patientAppointments = scopedAppointments.filter((appt) => appt.patientId === patient.id);
+  const patientNotes = scopedNotes.filter((note) => note.patientId === patient.id);
+  const patientPlans = scopedPlans.filter((plan) => plan.patientId === patient.id);
+  const patientPlan = patientPlans[0];
 
   return (
     <DashboardShell title={patient.fullName} subtitle={`Status: ${patient.status}`}>
@@ -54,6 +60,24 @@ export default async function PatientDetailPage({ params }: PatientDetailPagePro
             ))}
           </tbody>
         </table>
+      </Card>
+      <Card title="Treatment plan history">
+        <div className="space-y-3">
+          {patientPlans.length === 0 ? (
+            <p className="text-sm text-slate-500">Assign a treatment plan to track progress.</p>
+          ) : (
+            patientPlans.map((plan) => (
+              <div key={plan.id} className="rounded-lg bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-slate-900">{plan.title}</p>
+                  <span className="text-xs uppercase tracking-wide text-slate-500">{plan.status}</span>
+                </div>
+                <p className="mt-2 text-slate-600">{plan.goals}</p>
+                <p className="mt-1 text-sm text-slate-500">Interventions: {plan.interventions}</p>
+              </div>
+            ))
+          )}
+        </div>
       </Card>
       <Card title="Recent Notes">
         <ul className="space-y-3 text-sm">

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getAppointments, getPatients, getProviders, getTreatmentPlans } from "@/lib/data/ehr";
+import { getAppointments, getCurrentUserContext, getPatients, getProviders, getTreatmentPlans, scopePatientsToCurrentProvider, scopeRecordsToCurrentProvider } from "@/lib/data/ehr";
 import { createPatientAction, deletePatientAction, updatePatientAction } from "./actions";
 
 export default async function PatientsPage({
@@ -10,22 +10,28 @@ export default async function PatientsPage({
 }: {
   searchParams?: Promise<Record<string, string | undefined>>;
 }) {
+  const { role, userId } = await getCurrentUserContext();
+  const defaultUserPassword = process.env.DEFAULT_USER_PASSWORD ?? "Welcome@123";
   const [patients, appointments, plans, providers] = await Promise.all([
     getPatients(),
     getAppointments(),
     getTreatmentPlans(),
     getProviders(),
   ]);
+  const scopedPatients = await scopePatientsToCurrentProvider(patients);
+  const scopedAppointments = await scopeRecordsToCurrentProvider(appointments);
+  const scopedPlans = await scopeRecordsToCurrentProvider(plans);
+  const availableProviders = role === "provider" && userId ? providers.filter((provider) => provider.id === userId) : providers;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const errorMessage = resolvedSearchParams?.error ? decodeURIComponent(resolvedSearchParams.error) : null;
   const successMessage =
-    resolvedSearchParams?.success === "invited"
-      ? "Patient saved and portal invite email sent."
+    resolvedSearchParams?.success === "credentials"
+      ? `Patient saved and login created. Use the patient email and temporary password "${defaultUserPassword}".`
       : resolvedSearchParams?.success
         ? "Patient saved successfully."
         : null;
 
-  const latestVisits = appointments.reduce<Record<string, string>>((acc, appt) => {
+  const latestVisits = scopedAppointments.reduce<Record<string, string>>((acc, appt) => {
     const current = acc[appt.patientId];
     if (!current || new Date(current) < new Date(appt.scheduledAt)) {
       acc[appt.patientId] = appt.scheduledAt;
@@ -36,9 +42,9 @@ export default async function PatientsPage({
   return (
     <DashboardShell title="Patients" subtitle="Monitor caseload at a glance">
       <div className="grid gap-4 md:grid-cols-3">
-        <Card title="Active Patients" value={String(patients.filter((patient) => patient.status === "active").length)} />
-        <Card title="Treatment Plans" value={String(plans.length)} />
-        <Card title="Upcoming Visits" value={String(appointments.length)} />
+        <Card title="Active Patients" value={String(scopedPatients.filter((patient) => patient.status === "active").length)} />
+        <Card title="Treatment Plans" value={String(scopedPlans.length)} />
+        <Card title="Upcoming Visits" value={String(scopedAppointments.length)} />
       </div>
       <Card title="Caseload" className="overflow-hidden p-0">
         <table className="w-full table-auto text-sm">
@@ -51,7 +57,7 @@ export default async function PatientsPage({
             </tr>
           </thead>
           <tbody>
-            {patients.map((patient) => (
+            {scopedPatients.map((patient) => (
               <tr key={patient.id} className="border-t border-slate-100 text-slate-700">
                 <td className="px-6 py-3">
                   <Link href={`/patients/${patient.id}`} className="font-medium text-slate-900">
@@ -77,11 +83,11 @@ export default async function PatientsPage({
         </table>
       </Card>
       <Card title="Edit patients">
-        {patients.length === 0 ? (
+        {scopedPatients.length === 0 ? (
           <p className="text-sm text-slate-500">Add a patient first to edit their profile.</p>
         ) : (
           <div className="space-y-4">
-            {patients.map((patient) => (
+            {scopedPatients.map((patient) => (
               <details key={`${patient.id}-edit`} className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm">
                 <summary className="flex cursor-pointer items-center justify-between text-sm font-semibold text-slate-900">
                   {patient.fullName}
@@ -124,21 +130,33 @@ export default async function PatientsPage({
                       className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
                     />
                   </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Provider
-                    <select
-                      name="providerId"
-                      defaultValue={patient.providerId}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                      required
-                    >
-                      {providers.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.fullName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {role === "provider" ? (
+                    <label className="text-sm font-medium text-slate-600">
+                      Assigned provider
+                      <input
+                        value={availableProviders[0]?.fullName ?? "Current provider"}
+                        disabled
+                        className="mt-1 w-full rounded-2xl border border-white/60 bg-slate-50 px-3 py-2 text-slate-500 shadow"
+                      />
+                      <input type="hidden" name="providerId" value={userId ?? patient.providerId} />
+                    </label>
+                  ) : (
+                    <label className="text-sm font-medium text-slate-600">
+                      Provider
+                      <select
+                        name="providerId"
+                        defaultValue={patient.providerId}
+                        className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                        required
+                      >
+                        {availableProviders.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.fullName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <label className="text-sm font-medium text-slate-600">
                     Status
                     <select
@@ -207,23 +225,34 @@ export default async function PatientsPage({
           </label>
           <label className="text-sm font-medium text-slate-600">
             Provider
-            <select
-              name="providerId"
-              className="mt-1 w-full rounded-2xl border border-white/60 bg-white/80 px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-              required
-              defaultValue={providers[0]?.id ?? ""}
-              disabled={providers.length === 0}
-            >
-              {providers.length === 0 ? (
-                <option value="">No providers available</option>
-              ) : (
-                providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.fullName}
-                  </option>
-                ))
-              )}
-            </select>
+            {role === "provider" ? (
+              <>
+                <input type="hidden" name="providerId" value={userId ?? ""} />
+                <input
+                  value={availableProviders[0]?.fullName ?? "Current provider"}
+                  disabled
+                  className="mt-1 w-full rounded-2xl border border-white/60 bg-slate-50 px-3 py-2 text-slate-500 shadow"
+                />
+              </>
+            ) : (
+              <select
+                name="providerId"
+                className="mt-1 w-full rounded-2xl border border-white/60 bg-white/80 px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                required
+                defaultValue={availableProviders[0]?.id ?? ""}
+                disabled={availableProviders.length === 0}
+              >
+                {availableProviders.length === 0 ? (
+                  <option value="">No providers available</option>
+                ) : (
+                  availableProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.fullName}
+                    </option>
+                  ))
+                )}
+              </select>
+            )}
           </label>
           <label className="text-sm font-medium text-slate-600">
             Status
@@ -237,7 +266,7 @@ export default async function PatientsPage({
           </label>
           <label className="md:col-span-2 flex items-center gap-3 rounded-2xl border border-white/60 bg-white/80 px-4 py-3 text-sm text-slate-600 shadow-sm">
             <input type="checkbox" name="createAccount" defaultChecked className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
-            <span>Send portal invite email and create patient login account</span>
+            <span>Create patient login account with a temporary password</span>
           </label>
           <div className="md:col-span-2">
             <Button type="submit" className="w-full">

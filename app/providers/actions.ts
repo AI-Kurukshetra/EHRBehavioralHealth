@@ -37,7 +37,7 @@ export async function createProviderAction(formData: FormData) {
   }
 
   let providerId: string | undefined;
-  let inviteSent = false;
+  let credentialsCreated = false;
 
   if (shouldInvite) {
     try {
@@ -47,9 +47,9 @@ export async function createProviderAction(formData: FormData) {
         role: "provider",
       });
       providerId = account.userId;
-      inviteSent = account.inviteSent;
+      credentialsCreated = account.credentialsCreated;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to send provider invite.";
+      const message = error instanceof Error ? error.message : "Unable to create provider login account.";
       redirect(`/providers?error=${encodeURIComponent(message)}`);
     }
   }
@@ -62,7 +62,7 @@ export async function createProviderAction(formData: FormData) {
     specialty: submission.data.specialty,
   };
 
-  const { error } = await supabase.from("providers").insert(payload);
+  const { error } = await supabase.from("providers").insert(payload as never);
 
   if (error) {
     redirect(`/providers?error=${encodeURIComponent(error.message)}`);
@@ -70,7 +70,7 @@ export async function createProviderAction(formData: FormData) {
 
   revalidatePath("/providers");
   revalidatePath("/dashboard");
-  redirect(`/providers?success=${inviteSent ? "invited" : "saved"}`);
+  redirect(`/providers?success=${credentialsCreated ? "credentials" : "saved"}`);
 }
 
 export async function updateProviderAction(formData: FormData) {
@@ -89,12 +89,14 @@ export async function updateProviderAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase
     .from("providers")
-    .update({
-      full_name: submission.data.fullName,
-      email: submission.data.email,
-      phone: submission.data.phone || null,
-      specialty: submission.data.specialty,
-    })
+    .update(
+      {
+        full_name: submission.data.fullName,
+        email: submission.data.email,
+        phone: submission.data.phone || null,
+        specialty: submission.data.specialty,
+      } as never
+    )
     .eq("id", submission.data.id);
 
   if (error) {

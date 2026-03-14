@@ -40,7 +40,7 @@ type EnsureRoleAccountInput = {
 
 export const ensureRoleAccount = async ({ email, fullName, role }: EnsureRoleAccountInput) => {
   const admin = createSupabaseAdminClient();
-  const { appUrl } = getAdminConfig();
+  const temporaryPassword = process.env.DEFAULT_USER_PASSWORD ?? "Welcome@123";
 
   const { data: existingUsers, error: listError } = await admin.auth.admin.listUsers({
     page: 1,
@@ -52,23 +52,25 @@ export const ensureRoleAccount = async ({ email, fullName, role }: EnsureRoleAcc
   }
 
   let user = existingUsers.users.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase()) ?? null;
-  let inviteSent = false;
+  let credentialsCreated = false;
 
   if (!user) {
-    const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: {
+    const { data: createUserData, error: createUserError } = await admin.auth.admin.createUser({
+      email,
+      password: temporaryPassword,
+      email_confirm: true,
+      user_metadata: {
         full_name: fullName,
         role,
       },
-      redirectTo: `${appUrl}/auth/confirm?next=/set-password`,
     });
 
-    if (inviteError) {
-      throw inviteError;
+    if (createUserError) {
+      throw createUserError;
     }
 
-    user = inviteData.user;
-    inviteSent = true;
+    user = createUserData.user;
+    credentialsCreated = true;
   }
 
   if (!user) {
@@ -92,7 +94,8 @@ export const ensureRoleAccount = async ({ email, fullName, role }: EnsureRoleAcc
 
   return {
     userId: user.id,
-    inviteSent,
-    existed: !inviteSent,
+    credentialsCreated,
+    temporaryPassword: credentialsCreated ? temporaryPassword : null,
+    existed: !credentialsCreated,
   };
 };

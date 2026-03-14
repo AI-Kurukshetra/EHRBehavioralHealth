@@ -10,12 +10,13 @@ export default async function ProvidersPage({
 }: {
   searchParams?: Promise<Record<string, string | undefined>>;
 }) {
+  const defaultUserPassword = process.env.DEFAULT_USER_PASSWORD ?? "Welcome@123";
   const providers = await getProviders();
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const errorMessage = resolvedSearchParams?.error ? decodeURIComponent(resolvedSearchParams.error) : null;
   const successMessage =
-    resolvedSearchParams?.success === "invited"
-      ? "Provider saved and invite email sent."
+    resolvedSearchParams?.success === "credentials"
+      ? `Provider saved and login created. Use the provider email and temporary password "${defaultUserPassword}".`
       : resolvedSearchParams?.success
         ? "Provider saved successfully."
         : null;
@@ -179,7 +180,7 @@ export default async function ProvidersPage({
           </label>
           <label className="md:col-span-2 flex items-center gap-3 rounded-2xl border border-white/60 bg-white/80 px-4 py-3 text-sm text-slate-600 shadow-sm">
             <input type="checkbox" name="createAccount" defaultChecked className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
-            <span>Send dashboard invite email and create provider login account</span>
+            <span>Create provider login account with a temporary password</span>
           </label>
           <div className="md:col-span-2">
             <Button type="submit" className="w-full">

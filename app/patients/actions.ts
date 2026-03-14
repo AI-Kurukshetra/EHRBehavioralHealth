@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { patientSchema, type PatientSchema } from "@/lib/validators/patient";
+import { getCurrentUserContext } from "@/lib/data/ehr";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureRoleAccount } from "@/lib/supabase/admin";
 
@@ -76,12 +77,13 @@ const resolveAssignableProviderId = async (providerId: string) => {
 };
 
 export async function createPatientAction(formData: FormData) {
+  const { role, userId } = await getCurrentUserContext();
   const submission = patientSchema.safeParse({
     fullName: formData.get("fullName"),
     email: formData.get("email") || undefined,
     phone: formData.get("phone") || undefined,
     dateOfBirth: formData.get("dateOfBirth") || undefined,
-    providerId: formData.get("providerId"),
+    providerId: role === "provider" && userId ? userId : formData.get("providerId"),
     status: formData.get("status") || "active",
   });
   const shouldInvite = formData.get("createAccount") === "on";
@@ -109,7 +111,7 @@ export async function createPatientAction(formData: FormData) {
   }
 
   let patientId: string | undefined;
-  let inviteSent = false;
+  let credentialsCreated = false;
 
   if (shouldInvite) {
     if (!submission.data.email) {
@@ -123,9 +125,9 @@ export async function createPatientAction(formData: FormData) {
         role: "patient",
       });
       patientId = account.userId;
-      inviteSent = account.inviteSent;
+      credentialsCreated = account.credentialsCreated;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to send patient invite.";
+      const message = error instanceof Error ? error.message : "Unable to create patient login account.";
       redirect(`/patients?error=${encodeURIComponent(message)}`);
     }
   }
@@ -145,7 +147,7 @@ export async function createPatientAction(formData: FormData) {
   }
 
   revalidatePath("/patients");
-  redirect(`/patients?success=${inviteSent ? "invited" : "saved"}`);
+  redirect(`/patients?success=${credentialsCreated ? "credentials" : "saved"}`);
 }
 
 const updateSchema = patientSchema.extend({
@@ -153,13 +155,14 @@ const updateSchema = patientSchema.extend({
 });
 
 export async function updatePatientAction(formData: FormData) {
+  const { role, userId } = await getCurrentUserContext();
   const submission = updateSchema.safeParse({
     id: formData.get("id"),
     fullName: formData.get("fullName"),
     email: formData.get("email") || undefined,
     phone: formData.get("phone") || undefined,
     dateOfBirth: formData.get("dateOfBirth") || undefined,
-    providerId: formData.get("providerId"),
+    providerId: role === "provider" && userId ? userId : formData.get("providerId"),
     status: formData.get("status") || "active",
   });
 
@@ -190,15 +193,20 @@ export async function updatePatientAction(formData: FormData) {
     }
   }
 
-  const { error } = await supabase
-    .from("patients")
-    .update(
-      mapPatientPayload({
-        ...submission.data,
-        providerId: resolvedProviderId,
-      }) as never
-    )
-    .eq("id", submission.data.id!);
+  let updateQuery = supabase.from("patients").update(
+    mapPatientPayload({
+      ...submission.data,
+      providerId: resolvedProviderId,
+    }) as never
+  );
+
+  updateQuery = updateQuery.eq("id", submission.data.id!);
+
+  if (role === "provider" && userId) {
+    updateQuery = updateQuery.eq("provider_id", userId);
+  }
+
+  const { error } = await updateQuery;
 
   if (error) {
     redirect(`/patients?error=${encodeURIComponent(error.message)}`);
@@ -210,13 +218,20 @@ export async function updatePatientAction(formData: FormData) {
 }
 
 export async function deletePatientAction(formData: FormData) {
+  const { role, userId } = await getCurrentUserContext();
   const id = formData.get("id");
   if (!id) {
     redirect(`/patients?error=${encodeURIComponent("Missing patient id")}`);
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("patients").delete().eq("id", id);
+  let deleteQuery = supabase.from("patients").delete().eq("id", id);
+
+  if (role === "provider" && userId) {
+    deleteQuery = deleteQuery.eq("provider_id", userId);
+  }
+
+  const { error } = await deleteQuery;
 
   if (error) {
     redirect(`/patients?error=${encodeURIComponent(error.message)}`);
