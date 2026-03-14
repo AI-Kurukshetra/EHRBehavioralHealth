@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,37 @@ import {
   scopeRecordsToCurrentProvider,
 } from "@/lib/data/ehr";
 import { createNoteAction, deleteNoteAction, updateNoteAction } from "./actions";
+
+const PAGE_SIZE = 5;
+
+const toPositivePage = (value: string | undefined) => {
+  const parsed = Number.parseInt(value ?? "1", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+};
+
+const buildQueryString = (
+  searchParams: Record<string, string | undefined> | undefined,
+  updates: Record<string, string | undefined>
+) => {
+  const params = new URLSearchParams();
+
+  Object.entries(searchParams ?? {}).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    }
+  });
+
+  Object.entries(updates).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+  });
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+};
 
 export default async function NotesPage({
   searchParams,
@@ -30,6 +62,8 @@ export default async function NotesPage({
   const availableProviders = role === "provider" && userId ? providers.filter((provider) => provider.id === userId) : providers;
   const appointmentLookup = Object.fromEntries(scopedAppointments.map((appt) => [appt.id, appt]));
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const notePage = toPositivePage(resolvedSearchParams?.notePage);
+  const editNoteId = resolvedSearchParams?.editNote;
   const errorMessage = resolvedSearchParams?.error ? decodeURIComponent(resolvedSearchParams.error) : null;
   const successMessage =
     resolvedSearchParams?.success === "updated"
@@ -39,6 +73,9 @@ export default async function NotesPage({
         : resolvedSearchParams?.success
           ? "Note saved successfully."
           : null;
+  const totalPages = Math.max(1, Math.ceil(scopedNotes.length / PAGE_SIZE));
+  const currentPage = Math.min(notePage, totalPages);
+  const paginatedNotes = scopedNotes.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <DashboardShell title="Notes" subtitle="Track progress notes and tasks">
@@ -50,102 +87,152 @@ export default async function NotesPage({
           {successMessage}
         </div>
       ) : null}
-      <div className="grid gap-4">
-        {scopedNotes.map((note) => (
-          <Card key={note.id} title={`${note.title} • ${note.visibility === "patient" ? "Shared" : "Internal"}`}>
-            <p className="text-xs uppercase tracking-wide text-slate-500">
-              {new Date(note.createdAt).toLocaleString()} • {appointmentLookup[note.appointmentId]?.location ?? "Appointment"}
-            </p>
-            <p className="mt-2 text-slate-600">{note.summary ?? note.content}</p>
-            <form action={deleteNoteAction} className="mt-2">
-              <input type="hidden" name="id" value={note.id} />
-              <input type="hidden" name="redirectTo" value="/notes" />
-              <Button type="submit" variant="secondary" className="text-xs font-semibold text-rose-600 hover:text-rose-700">
-                Delete
-              </Button>
-            </form>
-          </Card>
-        ))}
-      </div>
-      <Card title="Edit note">
-        {scopedNotes.length === 0 ? (
-          <p className="text-sm text-slate-500">Create a note first to revise it.</p>
-        ) : (
-          <div className="space-y-4">
-            {scopedNotes.map((note) => (
-              <details key={`${note.id}-edit`} className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm">
-                <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-semibold text-slate-900">
-                  <span>{note.title}</span>
-                  <span className="text-xs text-slate-500">{new Date(note.createdAt).toLocaleDateString()}</span>
-                </summary>
-                <form action={updateNoteAction} className="mt-4 grid gap-3">
-                  <input type="hidden" name="id" value={note.id} />
-                  <input type="hidden" name="patientId" value={note.patientId} />
-                  <input type="hidden" name="appointmentId" value={note.appointmentId} />
-                  <input type="hidden" name="redirectTo" value="/notes" />
-                  {role === "provider" ? <input type="hidden" name="providerId" value={userId ?? ""} /> : null}
-                  {role !== "provider" ? (
-                    <label className="text-sm font-medium text-slate-600">
-                      Provider
-                      <select
-                        name="providerId"
-                        defaultValue={note.providerId}
-                        className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                        required
+      <Card title="Manage notes" className="overflow-hidden p-0">
+        <div className="divide-y divide-slate-100">
+          {paginatedNotes.length === 0 ? (
+            <p className="px-5 py-4 text-sm text-slate-500">No notes yet. Add the first note below.</p>
+          ) : (
+            paginatedNotes.map((note) => (
+              <div key={note.id} className="px-5 py-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900">
+                      {note.title} • {note.visibility === "patient" ? "Shared" : "Internal"}
+                    </p>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      {new Date(note.createdAt).toLocaleString()} • {appointmentLookup[note.appointmentId]?.location ?? "Appointment"}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600">{note.summary ?? note.content}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button asChild variant="secondary" className="text-xs">
+                      <Link
+                        href={buildQueryString(resolvedSearchParams, {
+                          editNote: editNoteId === note.id ? undefined : note.id,
+                          notePage: String(currentPage),
+                        })}
                       >
-                        {availableProviders.map((provider) => (
-                          <option key={provider.id} value={provider.id}>
-                            {provider.fullName}
-                          </option>
-                        ))}
+                        {editNoteId === note.id ? "Close" : "Edit"}
+                      </Link>
+                    </Button>
+                    <form action={deleteNoteAction}>
+                      <input type="hidden" name="id" value={note.id} />
+                      <input type="hidden" name="redirectTo" value="/notes" />
+                      <Button type="submit" variant="secondary" className="text-xs font-semibold text-rose-600 hover:text-rose-700">
+                        Delete
+                      </Button>
+                    </form>
+                  </div>
+                </div>
+                {editNoteId === note.id ? (
+                  <form action={updateNoteAction} className="mt-4 grid gap-3">
+                    <input type="hidden" name="id" value={note.id} />
+                    <input type="hidden" name="patientId" value={note.patientId} />
+                    <input type="hidden" name="appointmentId" value={note.appointmentId} />
+                    <input type="hidden" name="redirectTo" value="/notes" />
+                    {role === "provider" ? <input type="hidden" name="providerId" value={userId ?? ""} /> : null}
+                    {role !== "provider" ? (
+                      <label className="text-sm font-medium text-slate-600">
+                        Provider
+                        <select
+                          name="providerId"
+                          defaultValue={note.providerId}
+                          className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                          required
+                        >
+                          {availableProviders.map((provider) => (
+                            <option key={provider.id} value={provider.id}>
+                              {provider.fullName}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    <label className="text-sm font-medium text-slate-600">
+                      Title
+                      <input
+                        name="title"
+                        defaultValue={note.title}
+                        required
+                        className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-600">
+                      Summary
+                      <input
+                        name="summary"
+                        defaultValue={note.summary ?? ""}
+                        className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                        placeholder="Leave blank to let AI generate one from the note content"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-600">
+                      Content
+                      <textarea
+                        name="content"
+                        rows={4}
+                        defaultValue={note.content}
+                        required
+                        className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-600">
+                      Visibility
+                      <select
+                        name="visibility"
+                        defaultValue={note.visibility}
+                        className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="provider">Provider only</option>
+                        <option value="patient">Share with patient</option>
                       </select>
                     </label>
-                  ) : null}
-                  <label className="text-sm font-medium text-slate-600">
-                    Title
-                    <input
-                      name="title"
-                      defaultValue={note.title}
-                      required
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Summary
-                    <input
-                      name="summary"
-                      defaultValue={note.summary ?? ""}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                      placeholder="Leave blank to let AI generate one from the note content"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Content
-                    <textarea
-                      name="content"
-                      rows={4}
-                      defaultValue={note.content}
-                      required
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Visibility
-                    <select
-                      name="visibility"
-                      defaultValue={note.visibility}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    >
-                      <option value="provider">Provider only</option>
-                      <option value="patient">Share with patient</option>
-                    </select>
-                  </label>
-                  <Button type="submit">Save note changes</Button>
-                </form>
-              </details>
-            ))}
+                    <Button type="submit">Save note changes</Button>
+                  </form>
+                ) : null}
+              </div>
+            ))
+          )}
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4 text-sm">
+          <p className="text-slate-500">
+            Page {currentPage} of {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            {currentPage <= 1 ? (
+              <Button variant="secondary" className="text-xs" disabled>
+                Previous
+              </Button>
+            ) : (
+              <Button asChild variant="secondary" className="text-xs">
+                <Link
+                  href={buildQueryString(resolvedSearchParams, {
+                    notePage: String(currentPage - 1),
+                    editNote: undefined,
+                  })}
+                >
+                  Previous
+                </Link>
+              </Button>
+            )}
+            {currentPage >= totalPages ? (
+              <Button variant="secondary" className="text-xs" disabled>
+                Next
+              </Button>
+            ) : (
+              <Button asChild variant="secondary" className="text-xs">
+                <Link
+                  href={buildQueryString(resolvedSearchParams, {
+                    notePage: String(currentPage + 1),
+                    editNote: undefined,
+                  })}
+                >
+                  Next
+                </Link>
+              </Button>
+            )}
           </div>
-        )}
+        </div>
       </Card>
       <Card title="Add note">
         <p className="mb-3 text-sm text-slate-500">

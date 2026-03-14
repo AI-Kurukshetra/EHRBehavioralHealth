@@ -1,9 +1,41 @@
+import Link from "next/link";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { APPOINTMENT_TIME_SLOTS, getDateInputValue, getTimeInputValue } from "@/lib/constants/appointments";
 import { getAppointments, getCurrentUserContext, getPatients, scopePatientsToCurrentProvider, scopeRecordsToCurrentProvider } from "@/lib/data/ehr";
 import { createAppointmentAction, deleteAppointmentAction, updateAppointmentAction } from "./actions";
+
+const PAGE_SIZE = 5;
+
+const toPositivePage = (value: string | undefined) => {
+  const parsed = Number.parseInt(value ?? "1", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+};
+
+const buildQueryString = (
+  searchParams: Record<string, string | undefined> | undefined,
+  updates: Record<string, string | undefined>
+) => {
+  const params = new URLSearchParams();
+
+  Object.entries(searchParams ?? {}).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    }
+  });
+
+  Object.entries(updates).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+  });
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+};
 
 export default async function AppointmentsPage({
   searchParams,
@@ -18,6 +50,8 @@ export default async function AppointmentsPage({
   const upcomingAppointments = scopedAppointments.filter((appointment) => new Date(appointment.scheduledAt) > new Date());
   const completedAppointments = scopedAppointments.filter((appointment) => appointment.status === "completed");
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const appointmentPage = toPositivePage(resolvedSearchParams?.appointmentPage);
+  const editAppointmentId = resolvedSearchParams?.editAppointment;
   const errorMessage = resolvedSearchParams?.error ? decodeURIComponent(resolvedSearchParams.error) : null;
   const successMessage =
     resolvedSearchParams?.success === "updated"
@@ -27,6 +61,9 @@ export default async function AppointmentsPage({
         : resolvedSearchParams?.success
           ? "Appointment scheduled successfully."
           : null;
+  const totalPages = Math.max(1, Math.ceil(scopedAppointments.length / PAGE_SIZE));
+  const currentPage = Math.min(appointmentPage, totalPages);
+  const paginatedAppointments = scopedAppointments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <DashboardShell title="Appointments" subtitle="Today's session plan">
@@ -43,7 +80,7 @@ export default async function AppointmentsPage({
         <Card title="Completed" value={String(completedAppointments.length)} />
         <Card title="Total Visits" value={String(scopedAppointments.length)} />
       </div>
-      <Card title="Schedule" className="overflow-hidden p-0">
+      <Card title="Manage appointments" className="overflow-hidden p-0">
         <table className="w-full table-auto text-sm">
           <thead className="bg-white/70 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
@@ -55,118 +92,168 @@ export default async function AppointmentsPage({
             </tr>
           </thead>
           <tbody>
-            {scopedAppointments.map((appointment) => (
-              <tr key={appointment.id} className="border-t border-slate-100">
-                <td className="px-4 py-2 font-medium">{patientLookup[appointment.patientId]}</td>
-                <td className="px-4 py-2">{new Date(appointment.scheduledAt).toLocaleString()}</td>
-                <td className="px-4 py-2 capitalize">{appointment.status}</td>
-                <td className="px-4 py-2">{appointment.location}</td>
-                <td className="px-4 py-2 text-right">
-                  <form action={deleteAppointmentAction}>
-                    <input type="hidden" name="id" value={appointment.id} />
-                    <input type="hidden" name="redirectTo" value="/appointments" />
-                    <Button type="submit" variant="secondary" className="text-xs font-semibold text-rose-600 hover:text-rose-700">
-                      Cancel
-                    </Button>
-                  </form>
+            {paginatedAppointments.map((appointment) => (
+              <>
+                <tr key={appointment.id} className="border-t border-slate-100">
+                  <td className="px-4 py-2 font-medium">{patientLookup[appointment.patientId]}</td>
+                  <td className="px-4 py-2">{new Date(appointment.scheduledAt).toLocaleString()}</td>
+                  <td className="px-4 py-2 capitalize">{appointment.status}</td>
+                  <td className="px-4 py-2">{appointment.location}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button asChild variant="secondary" className="text-xs">
+                        <Link
+                          href={buildQueryString(resolvedSearchParams, {
+                            editAppointment: editAppointmentId === appointment.id ? undefined : appointment.id,
+                            appointmentPage: String(currentPage),
+                          })}
+                        >
+                          {editAppointmentId === appointment.id ? "Close" : "Edit"}
+                        </Link>
+                      </Button>
+                      <form action={deleteAppointmentAction}>
+                        <input type="hidden" name="id" value={appointment.id} />
+                        <input type="hidden" name="redirectTo" value="/appointments" />
+                        <Button type="submit" variant="secondary" className="text-xs font-semibold text-rose-600 hover:text-rose-700">
+                          Delete
+                        </Button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+                {editAppointmentId === appointment.id ? (
+                  <tr className="border-t border-slate-100 bg-slate-50/60">
+                    <td colSpan={5} className="px-4 py-5">
+                      <form action={updateAppointmentAction} className="grid gap-3 md:grid-cols-2">
+                        <input type="hidden" name="id" value={appointment.id} />
+                        <input type="hidden" name="patientId" value={appointment.patientId} />
+                        <input type="hidden" name="redirectTo" value="/appointments" />
+                        {role === "provider" ? <input type="hidden" name="providerId" value={userId ?? ""} /> : null}
+                        {role !== "provider" ? <input type="hidden" name="providerId" value={appointment.providerId} /> : null}
+                        <label className="text-sm font-medium text-slate-600">
+                          Appointment date
+                          <input
+                            name="appointmentDate"
+                            type="date"
+                            defaultValue={getDateInputValue(appointment.scheduledAt)}
+                            required
+                            className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                          />
+                        </label>
+                        <label className="text-sm font-medium text-slate-600">
+                          Time slot
+                          <select
+                            name="appointmentTime"
+                            defaultValue={getTimeInputValue(appointment.scheduledAt)}
+                            className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                          >
+                            {APPOINTMENT_TIME_SLOTS.map((slot) => (
+                              <option key={slot} value={slot}>
+                                {slot}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-sm font-medium text-slate-600">
+                          Duration
+                          <input
+                            name="durationMinutes"
+                            type="number"
+                            defaultValue={appointment.durationMinutes}
+                            min={15}
+                            max={180}
+                            className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                          />
+                        </label>
+                        <label className="text-sm font-medium text-slate-600">
+                          Location
+                          <input
+                            name="location"
+                            defaultValue={appointment.location}
+                            className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                          />
+                        </label>
+                        <label className="text-sm font-medium text-slate-600">
+                          Status
+                          <select
+                            name="status"
+                            defaultValue={appointment.status}
+                            className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                          >
+                            <option value="scheduled">Scheduled</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                            <option value="no_show">No show</option>
+                          </select>
+                        </label>
+                        <label className="text-sm font-medium text-slate-600 md:col-span-2">
+                          Notes
+                          <textarea
+                            name="notes"
+                            rows={3}
+                            defaultValue={appointment.notes ?? ""}
+                            className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
+                          />
+                        </label>
+                        <div className="md:col-span-2">
+                          <Button type="submit" className="w-full">
+                            Save appointment
+                          </Button>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                ) : null}
+              </>
+            ))}
+            {paginatedAppointments.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-4 text-sm text-slate-500">
+                  No appointments yet. Schedule your first visit below.
                 </td>
               </tr>
-            ))}
+            ) : null}
           </tbody>
         </table>
-      </Card>
-      <Card title="Reschedule or update">
-        {scopedAppointments.length === 0 ? (
-          <p className="text-sm text-slate-500">Schedule an appointment first to edit it.</p>
-        ) : (
-          <div className="space-y-4">
-            {scopedAppointments.map((appointment) => (
-              <details key={`${appointment.id}-edit`} className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm">
-                <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-semibold text-slate-900">
-                  <span>{patientLookup[appointment.patientId] ?? "Unknown patient"}</span>
-                  <span className="text-xs text-slate-500">{new Date(appointment.scheduledAt).toLocaleString()}</span>
-                </summary>
-                <form action={updateAppointmentAction} className="mt-4 grid gap-3 md:grid-cols-2">
-                  <input type="hidden" name="id" value={appointment.id} />
-                  <input type="hidden" name="patientId" value={appointment.patientId} />
-                  <input type="hidden" name="redirectTo" value="/appointments" />
-                  {role === "provider" ? <input type="hidden" name="providerId" value={userId ?? ""} /> : null}
-                  {role !== "provider" ? <input type="hidden" name="providerId" value={appointment.providerId} /> : null}
-                  <label className="text-sm font-medium text-slate-600">
-                    Appointment date
-                    <input
-                      name="appointmentDate"
-                      type="date"
-                      defaultValue={getDateInputValue(appointment.scheduledAt)}
-                      required
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Time slot
-                    <select
-                      name="appointmentTime"
-                      defaultValue={getTimeInputValue(appointment.scheduledAt)}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    >
-                      {APPOINTMENT_TIME_SLOTS.map((slot) => (
-                        <option key={slot} value={slot}>
-                          {slot}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Duration
-                    <input
-                      name="durationMinutes"
-                      type="number"
-                      defaultValue={appointment.durationMinutes}
-                      min={15}
-                      max={180}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Location
-                    <input
-                      name="location"
-                      defaultValue={appointment.location}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Status
-                    <select
-                      name="status"
-                      defaultValue={appointment.status}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    >
-                      <option value="scheduled">Scheduled</option>
-                      <option value="completed">Completed</option>
-                      <option value="cancelled">Cancelled</option>
-                      <option value="no_show">No show</option>
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-600 md:col-span-2">
-                    Notes
-                    <textarea
-                      name="notes"
-                      rows={3}
-                      defaultValue={appointment.notes ?? ""}
-                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white px-3 py-2 shadow focus:ring-2 focus:ring-indigo-100"
-                    />
-                  </label>
-                  <div className="md:col-span-2">
-                    <Button type="submit" className="w-full">
-                      Save appointment
-                    </Button>
-                  </div>
-                </form>
-              </details>
-            ))}
+        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-4 text-sm">
+          <p className="text-slate-500">
+            Page {currentPage} of {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            {currentPage <= 1 ? (
+              <Button variant="secondary" className="text-xs" disabled>
+                Previous
+              </Button>
+            ) : (
+              <Button asChild variant="secondary" className="text-xs">
+                <Link
+                  href={buildQueryString(resolvedSearchParams, {
+                    appointmentPage: String(currentPage - 1),
+                    editAppointment: undefined,
+                  })}
+                >
+                  Previous
+                </Link>
+              </Button>
+            )}
+            {currentPage >= totalPages ? (
+              <Button variant="secondary" className="text-xs" disabled>
+                Next
+              </Button>
+            ) : (
+              <Button asChild variant="secondary" className="text-xs">
+                <Link
+                  href={buildQueryString(resolvedSearchParams, {
+                    appointmentPage: String(currentPage + 1),
+                    editAppointment: undefined,
+                  })}
+                >
+                  Next
+                </Link>
+              </Button>
+            )}
           </div>
-        )}
+        </div>
       </Card>
       <Card title="Book appointment">
         <form action={createAppointmentAction} className="grid gap-3 md:grid-cols-2">
