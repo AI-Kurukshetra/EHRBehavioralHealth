@@ -82,7 +82,7 @@ export const ensureRoleAccount = async ({ email, fullName, role }: EnsureRoleAcc
       id: user.id,
       full_name: fullName,
       role,
-    },
+    } as never,
     {
       onConflict: "id",
     }

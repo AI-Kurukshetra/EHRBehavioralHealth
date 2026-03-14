@@ -38,7 +38,7 @@ export function SignupForm() {
     }
 
     if (fullName) {
-      await supabase.from("profiles").update({ full_name: fullName }).eq("id", data.user.id);
+      await supabase.from("profiles").update({ full_name: fullName } as never).eq("id", data.user.id);
     }
 
     setSuccess("Account created. Please sign in with your credentials.");
